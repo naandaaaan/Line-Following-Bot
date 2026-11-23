@@ -169,14 +169,9 @@ def simulate(Kp, Ki, Kd):
 
 # 4. RUN BOTH CONTROLLERS
 
-p_result = simulate(
-    Kp=22, Ki=0, Kd=0
-)
-
 pid_result = simulate(
-    Kp=22, Ki=0, Kd=0.2
+    Kp=22, Ki=0.01, Kd=0.2
 )
-
 
 # 5. PLOT THE COMPARISON
 
