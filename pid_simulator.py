@@ -2,46 +2,46 @@
 import numpy as np
 import matplotlib.pyplot as plt
 
+# 1. CREATE THE TRACK
 
 x1 = np.linspace(0, 1.6, 240)
 y1 = 0.13 * np.sin(2 * np.pi * x1 / 1.6)
 
-# Straight section before the 90-degree turn
 x2 = np.linspace(1.6, 1.95, 50)
 y2 = np.zeros_like(x2)
 
-# 90-degree curved turn
 angle = np.linspace(-np.pi / 2, 0, 80)
 radius = 0.35
 
 x3 = 1.95 + radius * np.cos(angle)
 y3 = 0.35 + radius * np.sin(angle)
 
-# Vertical section after the turn
-x4 = np.full(100, 2.3)
-y4 = np.linspace(0.35, 1.1, 100)
+x4 = np.full(150, 2.3)
+y4 = np.linspace(0.35, 1.8, 150)
 
 track_x = np.concatenate([x1, x2, x3, x4])
 track_y = np.concatenate([y1, y2, y3, y4])
 
 
+# 2. ROBOT PARAMETERS
+
 dt = 0.02
 wheelbase = 0.12
-base_speed = 0.28
-max_speed = 0.45
+base_speed = 0.08
+max_speed = 0.30
 
 sensor_positions = np.array([
-    -0.036, -0.018, 0, 0.018, 0.036
+    -0.044, -0.022, 0, 0.022, 0.044
 ])
 
-sensor_offset = 0.055
-sensor_sigma = 0.018
+sensor_offset = 0.08
+sensor_sigma = 0.025
 
 
+# 3. SIMULATION FUNCTION
 
 def simulate(Kp, Ki, Kd):
 
-    # Initial robot position and orientation
     x = 0.02
     y = 0.0
     theta = 0.0
@@ -54,28 +54,30 @@ def simulate(Kp, Ki, Kd):
     history_y = []
     history_error = []
 
-    for step in range(1000):
+    for step in range(2500):
 
-        # Find sensor readings
         readings = []
 
+        # Read all five virtual IR sensors
         for pos in sensor_positions:
 
-            # Position of each sensor in world coordinates
-            sx = (x + sensor_offset * np.cos(theta)
-                  - pos * np.sin(theta))
+            sx = (
+                x + sensor_offset * np.cos(theta)
+                - pos * np.sin(theta)
+            )
 
-            sy = (y + sensor_offset * np.sin(theta)
-                  + pos * np.cos(theta))
+            sy = (
+                y + sensor_offset * np.sin(theta)
+                + pos * np.cos(theta)
+            )
 
-            # Distance from sensor to nearest track point
             distances = np.sqrt(
-                (track_x - sx)**2 + (track_y - sy)**2
+                (track_x - sx)**2 +
+                (track_y - sy)**2
             )
 
             min_distance = np.min(distances)
 
-            # Simulated IR sensor response
             strength = np.exp(
                 -(min_distance**2) /
                 (2 * sensor_sigma**2)
@@ -85,19 +87,29 @@ def simulate(Kp, Ki, Kd):
 
         readings = np.array(readings)
 
-        # Weighted-average position
-        if np.sum(readings) > 1e-6:
-            error = np.sum(
-                sensor_positions * readings
-            ) / np.sum(readings)
+        # Calculate weighted-average position
+        if np.sum(readings) > 0.08:
+
+            error = (
+                np.sum(sensor_positions * readings)
+                / np.sum(readings)
+            )
+
             last_error = error
+
         else:
             error = last_error
 
-        # PID calculations
+        # PID calculation
+
         integral += error * dt
 
-        derivative = (error - previous_error) / dt
+        # Limit integral to prevent excessive accumulation
+        integral = np.clip(integral, -0.03, 0.03)
+
+        derivative = (
+            error - previous_error
+        ) / dt
 
         correction = (
             Kp * error
@@ -105,9 +117,10 @@ def simulate(Kp, Ki, Kd):
             + Kd * derivative
         )
 
-        correction = np.clip(correction, -5, 5)
+        correction = np.clip(correction, -3, 3)
 
-        # Differential drive wheel velocities
+        # Calculate left and right wheel speeds
+
         left_speed = (
             base_speed - correction * wheelbase / 2
         )
@@ -124,20 +137,23 @@ def simulate(Kp, Ki, Kd):
             right_speed, -max_speed, max_speed
         )
 
-        # Robot linear and angular velocities
+        # Differential-drive kinematics
+
         v = (right_speed + left_speed) / 2
 
         omega = (
             right_speed - left_speed
         ) / wheelbase
 
-        # Update robot position
+        # Update robot position and orientation
+
         x += v * np.cos(theta) * dt
         y += v * np.sin(theta) * dt
 
         theta += omega * dt
 
-        # Save data for plotting
+        # Store results
+
         history_x.append(x)
         history_y.append(y)
         history_error.append(error)
@@ -151,24 +167,25 @@ def simulate(Kp, Ki, Kd):
     )
 
 
-# ---------------------------------
-# 4. RUN P-ONLY AND PID
-# ---------------------------------
+# 4. RUN BOTH CONTROLLERS
 
-# P-only controller
 p_result = simulate(
     Kp=22, Ki=0, Kd=0
 )
 
-# Tuned PID controller
 pid_result = simulate(
-    Kp=22, Ki=0.1, Kd=0.65
+    Kp=22, Ki=0, Kd=0.2
 )
 
 
-plt.figure(figsize=(12, 5))
+# 5. PLOT THE COMPARISON
 
-# Trajectory comparison
+time = np.arange(2500) * dt
+
+plt.figure(figsize=(13, 5))
+
+# Robot path comparison
+
 plt.subplot(1, 2, 1)
 
 plt.plot(
@@ -189,14 +206,14 @@ plt.plot(
 plt.xlabel("X position (m)")
 plt.ylabel("Y position (m)")
 plt.title("Robot Path Comparison")
+
 plt.axis("equal")
 plt.legend()
 plt.grid()
 
-# Error comparison
-plt.subplot(1, 2, 2)
+# Tracking error comparison
 
-time = np.arange(1000) * dt
+plt.subplot(1, 2, 2)
 
 plt.plot(
     time, p_result[2],
@@ -211,8 +228,16 @@ plt.plot(
 plt.xlabel("Time (seconds)")
 plt.ylabel("Position Error (m)")
 plt.title("Tracking Error Comparison")
+
 plt.legend()
 plt.grid()
 
 plt.tight_layout()
+
+plt.savefig(
+    "PID_Comparison.png",
+    dpi=300,
+    bbox_inches="tight"
+)
+
 plt.show()
